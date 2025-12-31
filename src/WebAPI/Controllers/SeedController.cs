@@ -66,12 +66,12 @@ namespace WebAPI.Controllers
                 // Try multiple possible paths for the SQL script
                 var possiblePaths = new[]
                 {
-                    Path.Combine(_env.ContentRootPath, "..", "..", "scripts", "SeedAzureDatabase.sql"),
-                    Path.Combine(_env.ContentRootPath, "scripts", "SeedAzureDatabase.sql"),
-                    Path.Combine(Directory.GetCurrentDirectory(), "scripts", "SeedAzureDatabase.sql"),
-                    Path.Combine(Directory.GetCurrentDirectory(), "..", "scripts", "SeedAzureDatabase.sql"),
-                    "scripts/SeedAzureDatabase.sql",
-                    "../scripts/SeedAzureDatabase.sql"
+                    Path.Combine(_env.ContentRootPath, "..", "..", "scripts", "SeedDatabase.sql"),
+                    Path.Combine(_env.ContentRootPath, "scripts", "SeedDatabase.sql"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "scripts", "SeedDatabase.sql"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "..", "scripts", "SeedDatabase.sql"),
+                    "scripts/SeedDatabase.sql",
+                    "../scripts/SeedDatabase.sql"
                 };
 
                 string? sqlScript = null;

@@ -1,61 +1,79 @@
 # GitHub Secrets Setup Guide
 
-This guide explains the GitHub secrets you need to configure for the Azure deployment workflow.
+This guide explains the GitHub secrets you need to configure for AWS deployment via GitHub Actions.
 
 ## Required GitHub Secrets
 
-### 1. **AZURE_CREDENTIALS** (Required)
-**Purpose**: Service principal credentials for Azure authentication
+### 1. **AWS_ACCESS_KEY_ID** (Required)
+**Purpose**: AWS access key for IAM user with deployment permissions
 
 **How to create**:
-```bash
-# Login to Azure CLI
-az login
+1. Go to AWS Console → IAM → Users
+2. Create a new user or select existing user
+3. Attach policies: `AmazonLightsailFullAccess`, `RDSFullAccess`, `S3FullAccess`, `SESFullAccess`, `LambdaFullAccess`, `SQSFullAccess`, `CloudWatchLogsFullAccess`
+4. Create access key (Access key type: Application running outside AWS)
+5. Copy the Access Key ID
 
-# Create a service principal (replace with your subscription ID and resource group)
-az ad sp create-for-rbac --name "sqordia-github-actions" \
-  --role contributor \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/{resource-group} \
-  --sdk-auth
-```
-
-**Format**: JSON string containing:
-```json
-{
-  "clientId": "...",
-  "clientSecret": "...",
-  "subscriptionId": "...",
-  "tenantId": "..."
-}
-```
+**Value**: Your AWS access key ID (e.g., `AKIAIOSFODNN7EXAMPLE`)
 
 ---
 
-### 2. **AZURE_WEBAPP_PUBLISH_PROFILE** (Required)
-**Purpose**: Publish profile for deploying to Azure App Service
+### 2. **AWS_SECRET_ACCESS_KEY** (Required - sensitive)
+**Purpose**: AWS secret access key for IAM user
+
+**Value**: Your AWS secret access key (keep this secure, never commit to Git)
+
+---
+
+### 3. **AWS_REGION** (Optional)
+**Purpose**: AWS region for deployment
+
+**Default**: `ca-central-1` (Canada Central)
+
+**Value**: `ca-central-1`
+
+---
+
+### 4. **RDS_ENDPOINT** (Required)
+**Purpose**: RDS PostgreSQL endpoint
 
 **How to get**:
-1. Go to Azure Portal → Your App Service → **Get publish profile**
-2. Download the `.PublishSettings` file
-3. Copy the entire content (XML format)
+1. Go to AWS Console → RDS → Databases
+2. Select your database instance
+3. Copy the endpoint (e.g., `sqordia-db.xxxxx.ca-central-1.rds.amazonaws.com`)
+
+**Value**: Your RDS endpoint
 
 ---
 
-### 3. **DB_USERNAME** (Optional - if not hardcoded)
-**Purpose**: Azure SQL Database username
+### 5. **RDS_DATABASE_NAME** (Required)
+**Purpose**: PostgreSQL database name
 
-**Value**: `sqordia` (or your database username)
-
----
-
-### 4. **DB_PASSWORD** (Required - sensitive)
-**Purpose**: Azure SQL Database password
-
-**Value**: Your database password
+**Value**: `SqordiaDb` (or your database name)
 
 ---
 
-### 5. **JWT_SECRET** (Required - sensitive)
+### 6. **RDS_USERNAME** (Required)
+**Purpose**: RDS PostgreSQL master username
+
+**Value**: `sqordia_admin` (or your database username)
+
+---
+
+### 7. **RDS_PASSWORD** (Required - sensitive)
+**Purpose**: RDS PostgreSQL master password
+
+**How to set**:
+1. Go to AWS Console → RDS → Databases
+2. Select your database instance
+3. Modify → Change master password
+4. Set a strong password
+
+**Value**: Your database password (keep this secure)
+
+---
+
+### 8. **JWT_SECRET** (Required - sensitive)
 **Purpose**: JWT token signing secret (minimum 32 characters)
 
 **How to generate**:
@@ -71,7 +89,7 @@ openssl rand -base64 32
 
 ---
 
-### 6. **OPENAI_API_KEY** (Optional)
+### 9. **OPENAI_API_KEY** (Optional)
 **Purpose**: OpenAI API key for AI features
 
 **How to get**: 
@@ -81,18 +99,7 @@ openssl rand -base64 32
 
 ---
 
-### 7. **SENDGRID_API_KEY** (Required for email)
-**Purpose**: SendGrid API key for email sending
-
-**How to get**:
-1. Sign up at https://sendgrid.com
-2. Go to Settings → API Keys
-3. Create an API key with "Full Access" or "Mail Send" permissions
-4. Copy the key (starts with `SG.`)
-
----
-
-### 8. **CLAUDE_API_KEY** (Optional)
+### 10. **CLAUDE_API_KEY** (Optional)
 **Purpose**: Anthropic Claude API key for AI features
 
 **How to get**: 
@@ -102,7 +109,7 @@ openssl rand -base64 32
 
 ---
 
-### 9. **GEMINI_API_KEY** (Optional)
+### 11. **GEMINI_API_KEY** (Optional)
 **Purpose**: Google Gemini API key for AI features
 
 **How to get**:
@@ -112,7 +119,32 @@ openssl rand -base64 32
 
 ---
 
-### 10. **GOOGLE_OAUTH_CLIENT_ID** (Optional)
+### 12. **SES_FROM_EMAIL** (Required)
+**Purpose**: AWS SES sender email address
+
+**How to set**:
+1. Go to AWS Console → SES → Verified identities
+2. Verify your email address or domain
+3. Copy the verified email
+
+**Value**: Your verified SES email (e.g., `noreply@sqordia.com`)
+
+---
+
+### 13. **S3_BUCKET_NAME** (Required)
+**Purpose**: S3 bucket name for file storage
+
+**How to create**:
+1. Go to AWS Console → S3 → Create bucket
+2. Bucket name: `sqordia-documents-production` (or your preferred name)
+3. Region: `ca-central-1`
+4. Create bucket
+
+**Value**: Your S3 bucket name
+
+---
+
+### 14. **GOOGLE_OAUTH_CLIENT_ID** (Optional)
 **Purpose**: Google OAuth client ID for authentication
 
 **How to get**:
@@ -122,7 +154,7 @@ openssl rand -base64 32
 
 ---
 
-### 11. **GOOGLE_OAUTH_CLIENT_SECRET** (Optional - sensitive)
+### 15. **GOOGLE_OAUTH_CLIENT_SECRET** (Optional - sensitive)
 **Purpose**: Google OAuth client secret
 
 **How to get**:
@@ -130,26 +162,17 @@ openssl rand -base64 32
 
 ---
 
-### 12. **GOOGLE_OAUTH_REDIRECT_URI** (Optional)
+### 16. **GOOGLE_OAUTH_REDIRECT_URI** (Optional)
 **Purpose**: OAuth redirect URI
 
 **For Production**:
-- **Value**: `https://sqordia-backend-api.azurewebsites.net/api/v1/auth/google/callback`
+- **Value**: `https://your-domain.com/api/v1/auth/google/callback`
 
 **For Localhost Development**:
 - **HTTP**: `http://localhost:5241/api/v1/auth/google/callback`
 - **HTTPS**: `https://localhost:7148/api/v1/auth/google/callback`
 
 **Note**: You need to configure both redirect URIs in your Google Cloud Console OAuth credentials to support both local development and production.
-
----
-
-### 13. **AZURE_STORAGE_CONNECTION_STRING** (Optional)
-**Purpose**: Azure Blob Storage connection string for file storage
-
-**How to get**:
-1. Azure Portal → Storage Account → Access Keys
-2. Copy the connection string
 
 ---
 
@@ -161,44 +184,70 @@ openssl rand -base64 32
 4. Enter the secret name and value
 5. Click **Add secret**
 
-## Recommended Workflow Update
+---
 
-Instead of hardcoding sensitive values in the workflow, use GitHub secrets:
+## Database Settings Table (Encrypted)
 
-```yaml
-az webapp config appsettings set --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group $RESOURCE_GROUP --settings \
-  DB_USERNAME="${{ secrets.DB_USERNAME }}" \
-  DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-  JWT_SECRET="${{ secrets.JWT_SECRET }}" \
-  OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-  SENDGRID_API_KEY="${{ secrets.SENDGRID_API_KEY }}" \
-  SENDGRID_FROM_EMAIL="noreply@sqordia.com" \
-  SENDGRID_FROM_NAME="Sqordia Team" \
-  GOOGLE_OAUTH_CLIENT_ID="${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}" \
-  GOOGLE_OAUTH_CLIENT_SECRET="${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}" \
-  GOOGLE_OAUTH_REDIRECT_URI="https://sqordia-backend-api.azurewebsites.net/api/v1/auth/google/callback" \
-  AZURE_STORAGE_CONNECTION_STRING="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+API keys (OpenAI, Claude, Gemini) are stored in the database Settings table (encrypted) instead of AWS Secrets Manager to save costs ($0/month vs $1.20/month).
+
+**To store API keys**:
+1. After deployment, use the Settings API:
+   ```bash
+   POST /api/v1/settings/secrets/AI:OpenAI:ApiKey
+   POST /api/v1/settings/secrets/AI:Claude:ApiKey
+   POST /api/v1/settings/secrets/AI:Gemini:ApiKey
+   ```
+
+2. Or use the database directly (values will be encrypted automatically)
+
+```bash
+# Store OpenAI API key
+aws secretsmanager put-secret-value \
+  --secret-id sqordia/openai-api-key/production \
+  --secret-string "your-api-key" \
+  --region ca-central-1
+
+# Store Claude API key
+aws secretsmanager put-secret-value \
+  --secret-id sqordia/claude-api-key/production \
+  --secret-string "your-api-key" \
+  --region ca-central-1
+
+# Store Gemini API key
+aws secretsmanager put-secret-value \
+  --secret-id sqordia/gemini-api-key/production \
+  --secret-string "your-api-key" \
+  --region ca-central-1
 ```
+
+---
 
 ## Security Best Practices
 
-1. ✅ **Never commit secrets** to the repository
-2. ✅ **Use GitHub Secrets** for all sensitive values
-3. ✅ **Rotate secrets regularly** (especially JWT_SECRET and passwords)
-4. ✅ **Use least privilege** for service principals
-5. ✅ **Review secret access** regularly in GitHub settings
+1. **Never commit secrets to Git** - Always use GitHub Secrets or AWS Secrets Manager
+2. **Rotate secrets regularly** - Update API keys and passwords periodically
+3. **Use least privilege** - Grant only necessary permissions to IAM users
+4. **Enable MFA** - Use multi-factor authentication for AWS accounts
+5. **Monitor access** - Review CloudTrail logs regularly
 
-## Minimum Required Secrets
+---
 
-For basic deployment, you need:
-- ✅ `AZURE_CREDENTIALS`
-- ✅ `AZURE_WEBAPP_PUBLISH_PROFILE`
-- ✅ `DB_PASSWORD`
-- ✅ `JWT_SECRET`
-- ✅ `SENDGRID_API_KEY` (required for email functionality)
+## Troubleshooting
 
-Optional but recommended:
-- `OPENAI_API_KEY` (for AI features)
-- `GOOGLE_OAUTH_CLIENT_ID` & `GOOGLE_OAUTH_CLIENT_SECRET` (for OAuth)
-- `AZURE_STORAGE_CONNECTION_STRING` (for file storage)
+### Error: "Access Denied"
+- Verify IAM user has correct policies attached
+- Check that access keys are valid and not expired
 
+### Error: "Database connection failed"
+- Verify RDS endpoint is correct
+- Check security group allows connections from GitHub Actions IPs
+- Verify database username and password
+
+### Error: "S3 bucket not found"
+- Verify bucket name is correct
+- Check bucket exists in the specified region
+- Verify IAM user has S3 permissions
+
+---
+
+For more information, see [docs/GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md).

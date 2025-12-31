@@ -78,13 +78,15 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     // Subscription Management
     public DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
     public DbSet<Subscription> Subscriptions { get; set; }
+    
+    // Application Settings
+    public DbSet<Settings> Settings { get; set; }
 
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
     {
     }
 
 
-    // TODO: Override OnModelCreating for configurations
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);

@@ -7,7 +7,7 @@ public class SecurityService : ISecurityService
 {
     public string HashPassword(string password)
     {
-        // TODO: Implement proper password hashing with salt
+        // BCrypt automatically handles salt generation
         return BCrypt.Net.BCrypt.HashPassword(password);
     }
 

@@ -1,232 +1,207 @@
-using SendGrid;
-using SendGrid.Helpers.Mail;
+using Amazon.SQS;
+using Amazon.SQS.Model;
 using Microsoft.Extensions.Logging;
 using Sqordia.Application.Common.Interfaces;
 using Sqordia.Domain.ValueObjects;
-using EmailAddress = SendGrid.Helpers.Mail.EmailAddress;
+using System.Text.Json;
 
 namespace Sqordia.Infrastructure.Services;
 
+/// <summary>
+/// Email service that sends emails via AWS SQS queue (processed by Lambda/SES)
+/// </summary>
 public class EmailService : IEmailService
 {
-    private readonly ISendGridClient _sendGridClient;
-    private readonly string _fromEmail;
-    private readonly string _fromName;
+    private readonly IAmazonSQS? _sqsClient;
+    private readonly string? _emailQueueUrl;
+    private readonly string _awsRegion;
     private readonly ILogger<EmailService> _logger;
     private readonly ILocalizationService _localizationService;
 
     public EmailService(
-        ISendGridClient sendGridClient, 
-        string fromEmail, 
-        string fromName, 
+        IAmazonSQS? sqsClient,
+        string? emailQueueUrl,
+        string awsRegion,
         ILogger<EmailService> logger,
         ILocalizationService localizationService)
     {
-        _sendGridClient = sendGridClient;
-        _fromEmail = fromEmail;
-        _fromName = fromName;
+        _sqsClient = sqsClient;
+        _emailQueueUrl = emailQueueUrl;
+        _awsRegion = awsRegion;
         _logger = logger;
         _localizationService = localizationService;
     }
 
+    private async Task SendToQueueAsync(string emailType, string toEmail, string? toName, string subject, string body, string? htmlBody = null, Dictionary<string, string>? metadata = null)
+    {
+        if (string.IsNullOrWhiteSpace(_emailQueueUrl) || _sqsClient == null)
+        {
+            _logger.LogWarning(
+                "Email queue not configured. Email would be sent: Type={EmailType}, To={ToEmail}, Subject={Subject}",
+                emailType, toEmail, subject);
+            return;
+        }
+
+        try
+        {
+            var jobId = Guid.NewGuid().ToString();
+            var message = new
+            {
+                jobId = jobId,
+                emailType = emailType,
+                toEmail = toEmail,
+                toName = toName,
+                subject = subject,
+                body = body,
+                htmlBody = htmlBody,
+                metadata = metadata ?? new Dictionary<string, string>()
+            };
+
+            var messageBody = JsonSerializer.Serialize(message);
+            var request = new SendMessageRequest
+            {
+                QueueUrl = _emailQueueUrl,
+                MessageBody = messageBody
+            };
+
+            var response = await _sqsClient.SendMessageAsync(request);
+            _logger.LogInformation(
+                "Email job {JobId} queued successfully. Type={EmailType}, To={ToEmail}, MessageId={MessageId}",
+                jobId, emailType, toEmail, response.MessageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to queue email job. Type={EmailType}, To={ToEmail}", emailType, toEmail);
+            throw;
+        }
+    }
+
     public async Task SendEmailAsync(Domain.ValueObjects.EmailAddress to, string subject, string body)
     {
-        var from = new SendGrid.Helpers.Mail.EmailAddress(_fromEmail, _fromName);
-        var toEmail = new SendGrid.Helpers.Mail.EmailAddress(to.Value, to.Value);
-        var plainTextContent = body;
-        var htmlContent = $"<p>{body}</p>";
-        var msg = MailHelper.CreateSingleEmail(from, toEmail, subject, plainTextContent, htmlContent);
-        var response = await _sendGridClient.SendEmailAsync(msg);
+        await SendToQueueAsync("simple", to.Value, null, subject, body);
     }
 
     public async Task SendEmailAsync(IEnumerable<Domain.ValueObjects.EmailAddress> to, string subject, string body)
     {
-        var from = new SendGrid.Helpers.Mail.EmailAddress(_fromEmail, _fromName);
-        var tos = to.Select(t => new SendGrid.Helpers.Mail.EmailAddress(t.Value, t.Value)).ToList();
-        var plainTextContent = body;
-        var htmlContent = $"<p>{body}</p>";
-        var msg = MailHelper.CreateSingleEmailToMultipleRecipients(from, tos, subject, plainTextContent, htmlContent);
-        var response = await _sendGridClient.SendEmailAsync(msg);
+        // Send individual emails for each recipient
+        var tasks = to.Select(email => SendToQueueAsync("simple", email.Value, null, subject, body));
+        await Task.WhenAll(tasks);
     }
 
     public async Task SendHtmlEmailAsync(Domain.ValueObjects.EmailAddress to, string subject, string htmlBody)
     {
-        var from = new SendGrid.Helpers.Mail.EmailAddress(_fromEmail, _fromName);
-        var toEmail = new SendGrid.Helpers.Mail.EmailAddress(to.Value, to.Value);
-        var plainTextContent = "Please view this email in an HTML-compatible client";
-        var msg = MailHelper.CreateSingleEmail(from, toEmail, subject, plainTextContent, htmlBody);
-        var response = await _sendGridClient.SendEmailAsync(msg);
+        await SendToQueueAsync("html", to.Value, null, subject, string.Empty, htmlBody);
     }
 
     public async Task SendHtmlEmailAsync(IEnumerable<Domain.ValueObjects.EmailAddress> to, string subject, string htmlBody)
     {
-        var from = new SendGrid.Helpers.Mail.EmailAddress(_fromEmail, _fromName);
-        var tos = to.Select(t => new SendGrid.Helpers.Mail.EmailAddress(t.Value, t.Value)).ToList();
-        var plainTextContent = "Please view this email in an HTML-compatible client";
-        var msg = MailHelper.CreateSingleEmailToMultipleRecipients(from, tos, subject, plainTextContent, htmlBody);
-        var response = await _sendGridClient.SendEmailAsync(msg);
+        var tasks = to.Select(email => SendToQueueAsync("html", email.Value, null, subject, string.Empty, htmlBody));
+        await Task.WhenAll(tasks);
     }
 
     public async Task SendWelcomeWithVerificationAsync(string email, string firstName, string lastName, string userName, string verificationToken)
     {
-        try
+        var htmlBody = GetWelcomeWithVerificationTemplate(firstName, lastName, verificationToken);
+        var metadata = new Dictionary<string, string>
         {
-            // Skip sending if FromEmail is not configured
-            if (string.IsNullOrEmpty(_fromEmail) || _fromEmail.Contains("TODO"))
-            {
-                _logger.LogWarning("Email sending disabled. FromEmail not configured. Would send welcome and verification email to {Email}", email);
-                return;
-            }
-
-            var subject = "Welcome to Sqordia - Verify Your Email";
-            var htmlBody = GetWelcomeWithVerificationTemplate(firstName, lastName, verificationToken);
-            
-            var from = new EmailAddress(_fromEmail, _fromName);
-            var to = new EmailAddress(email, $"{firstName} {lastName}");
-            var plainTextContent = $"Welcome to Sqordia, {firstName}! Please verify your email by visiting: https://localhost:7001/verify-email?token={verificationToken}";
-            
-            var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-            var response = await _sendGridClient.SendEmailAsync(msg);
-            
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Welcome and verification email sent successfully to {Email}", email);
-            }
-            else
-            {
-                var responseBody = await response.Body.ReadAsStringAsync();
-                _logger.LogError("Failed to send welcome and verification email to {Email}. StatusCode: {StatusCode}, Response: {Response}", 
-                    email, response.StatusCode, responseBody);
-                throw new Exception($"SendGrid failed with status code {response.StatusCode}: {responseBody}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending welcome and verification email to {Email}", email);
-            throw;
-        }
+            { "firstName", firstName },
+            { "lastName", lastName },
+            { "userName", userName },
+            { "verificationToken", verificationToken }
+        };
+        await SendToQueueAsync("welcome_verification", email, $"{firstName} {lastName}", "Welcome to Sqordia - Verify Your Email", string.Empty, htmlBody, metadata);
     }
 
     public async Task SendWelcomeEmailAsync(string email, string firstName, string lastName)
     {
-        try
+        var subject = _localizationService.GetString("Email.Subject.Welcome");
+        var htmlBody = GetWelcomeEmailTemplate(firstName, lastName);
+        var metadata = new Dictionary<string, string>
         {
-            var subject = _localizationService.GetString("Email.Subject.Welcome");
-            var htmlBody = GetWelcomeEmailTemplate(firstName, lastName);
-            
-            var from = new EmailAddress(_fromEmail, _fromName);
-            var to = new EmailAddress(email, $"{firstName} {lastName}");
-            var greeting = _localizationService.GetString("Email.Welcome.Greeting", firstName);
-            var thankYou = _localizationService.GetString("Email.Welcome.ThankYou");
-            var plainTextContent = $"{greeting} {thankYou}";
-            
-            var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-            var response = await _sendGridClient.SendEmailAsync(msg);
-            
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Welcome email sent successfully to {Email}", email);
-            }
-            else
-            {
-                var responseBody = await response.Body.ReadAsStringAsync();
-                _logger.LogError("Failed to send welcome email to {Email}. StatusCode: {StatusCode}, Response: {Response}", 
-                    email, response.StatusCode, responseBody);
-                throw new Exception($"SendGrid failed with status code {response.StatusCode}: {responseBody}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending welcome email to {Email}", email);
-            throw;
-        }
+            { "firstName", firstName },
+            { "lastName", lastName }
+        };
+        await SendToQueueAsync("welcome", email, $"{firstName} {lastName}", subject, string.Empty, htmlBody, metadata);
     }
 
     public async Task SendEmailVerificationAsync(string email, string userName, string verificationToken)
     {
-        try
+        var subject = _localizationService.GetString("Email.Subject.Verification");
+        var htmlBody = GetEmailVerificationTemplate(userName, verificationToken);
+        var metadata = new Dictionary<string, string>
         {
-            var subject = _localizationService.GetString("Email.Subject.Verification");
-            var htmlBody = GetEmailVerificationTemplate(userName, verificationToken);
-            
-            var from = new EmailAddress(_fromEmail, _fromName);
-            var to = new EmailAddress(email, userName);
-            var plainTextContent = $"{_localizationService.GetString("Email.Verification.ThankYou")} https://localhost:7001/verify-email?token={verificationToken}";
-            
-            var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-            var response = await _sendGridClient.SendEmailAsync(msg);
-            
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Verification email sent successfully to {Email}", email);
-            }
-            else
-            {
-                var responseBody = await response.Body.ReadAsStringAsync();
-                _logger.LogError("Failed to send verification email to {Email}. StatusCode: {StatusCode}, Response: {Response}", 
-                    email, response.StatusCode, responseBody);
-                throw new Exception($"SendGrid failed with status code {response.StatusCode}: {responseBody}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending verification email to {Email}", email);
-            throw;
-        }
+            { "userName", userName },
+            { "verificationToken", verificationToken }
+        };
+        await SendToQueueAsync("verification", email, userName, subject, string.Empty, htmlBody, metadata);
     }
 
     public async Task SendPasswordResetAsync(string email, string userName, string resetToken)
     {
         var subject = _localizationService.GetString("Email.Subject.PasswordReset");
         var htmlBody = GetPasswordResetTemplate(userName, resetToken);
-        
-        var from = new EmailAddress(_fromEmail, _fromName);
-        var to = new EmailAddress(email, userName);
-        var plainTextContent = $"{_localizationService.GetString("Email.PasswordReset.RequestReceived")} https://localhost:7001/reset-password?token={resetToken}";
-        
-        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-        await _sendGridClient.SendEmailAsync(msg);
+        var metadata = new Dictionary<string, string>
+        {
+            { "userName", userName },
+            { "resetToken", resetToken }
+        };
+        await SendToQueueAsync("password_reset", email, userName, subject, string.Empty, htmlBody, metadata);
     }
 
     public async Task SendAccountLockedAsync(string email, string userName, DateTime lockedUntil)
     {
         var subject = _localizationService.GetString("Email.Subject.AccountLocked");
         var htmlBody = GetAccountLockedTemplate(userName, lockedUntil);
-        
-        var from = new EmailAddress(_fromEmail, _fromName);
-        var to = new EmailAddress(email, userName);
-        var plainTextContent = _localizationService.GetString("Email.AccountLocked.Notification");
-        
-        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-        await _sendGridClient.SendEmailAsync(msg);
+        var metadata = new Dictionary<string, string>
+        {
+            { "userName", userName },
+            { "lockedUntil", lockedUntil.ToString("O") }
+        };
+        await SendToQueueAsync("account_locked", email, userName, subject, string.Empty, htmlBody, metadata);
     }
 
     public async Task SendLoginAlertAsync(string email, string userName, string ipAddress, DateTime loginTime)
     {
         var subject = _localizationService.GetString("Email.Subject.LoginAlert");
         var htmlBody = GetLoginAlertTemplate(userName, ipAddress, loginTime);
-        
-        var from = new EmailAddress(_fromEmail, _fromName);
-        var to = new EmailAddress(email, userName);
-        var plainTextContent = _localizationService.GetString("Email.LoginAlert.Notification");
-        
-        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-        await _sendGridClient.SendEmailAsync(msg);
+        var metadata = new Dictionary<string, string>
+        {
+            { "userName", userName },
+            { "ipAddress", ipAddress },
+            { "loginTime", loginTime.ToString("O") }
+        };
+        await SendToQueueAsync("login_alert", email, userName, subject, string.Empty, htmlBody, metadata);
+    }
+
+    public async Task SendAccountLockoutNotificationAsync(string email, string firstName, TimeSpan lockoutDuration, DateTime lockedAt)
+    {
+        var subject = _localizationService.GetString("Email.Subject.AccountLocked");
+        var htmlBody = GetAccountLockoutTemplate(firstName, lockoutDuration, lockedAt);
+        var metadata = new Dictionary<string, string>
+        {
+            { "firstName", firstName },
+            { "lockoutDuration", lockoutDuration.TotalMinutes.ToString() },
+            { "lockedAt", lockedAt.ToString("O") }
+        };
+        await SendToQueueAsync("account_lockout", email, firstName, subject, string.Empty, htmlBody, metadata);
     }
 
     public async Task SendOrganizationInvitationAsync(string email, string invitationToken, string? message = null)
     {
         var subject = _localizationService.GetString("Email.Subject.OrganizationInvitation");
         var htmlBody = GetOrganizationInvitationTemplate(email, invitationToken, message);
-        
-        var from = new EmailAddress(_fromEmail, _fromName);
-        var to = new EmailAddress(email, email);
-        var plainTextContent = $"{subject}: https://localhost:7001/accept-invitation?token={invitationToken}";
-        
-        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-        await _sendGridClient.SendEmailAsync(msg);
+        var metadata = new Dictionary<string, string>
+        {
+            { "invitationToken", invitationToken }
+        };
+        if (!string.IsNullOrEmpty(message))
+        {
+            metadata["message"] = message;
+        }
+        await SendToQueueAsync("organization_invitation", email, email, subject, string.Empty, htmlBody, metadata);
     }
 
+    // Template methods remain the same - they generate HTML content
     private string GetEmailVerificationTemplate(string userName, string verificationToken)
     {
         return $@"
@@ -546,48 +521,6 @@ public class EmailService : IEmailService
     </div>
 </body>
 </html>";
-    }
-
-    public async Task SendAccountLockoutNotificationAsync(string email, string firstName, TimeSpan lockoutDuration, DateTime lockedAt)
-    {
-        try
-        {
-            // Skip sending if FromEmail is not configured
-            if (string.IsNullOrEmpty(_fromEmail) || _fromEmail.Contains("TODO"))
-            {
-                _logger.LogWarning("Email sending disabled. FromEmail not configured. Would send account lockout notification to {Email}", email);
-                return;
-            }
-
-            var subject = _localizationService.GetString("Email.Subject.AccountLocked");
-            var htmlBody = GetAccountLockoutTemplate(firstName, lockoutDuration, lockedAt);
-            
-            var from = new EmailAddress(_fromEmail, _fromName);
-            var to = new EmailAddress(email, firstName);
-            var notification = _localizationService.GetString("Email.AccountLocked.Notification");
-            var duration = _localizationService.GetString("Email.AccountLocked.Duration", (int)lockoutDuration.TotalMinutes);
-            var plainTextContent = $"{notification} {duration}";
-            
-            var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlBody);
-            var response = await _sendGridClient.SendEmailAsync(msg);
-            
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Account lockout notification sent successfully to {Email}", email);
-            }
-            else
-            {
-                var responseBody = await response.Body.ReadAsStringAsync();
-                _logger.LogError("Failed to send account lockout notification to {Email}. StatusCode: {StatusCode}, Response: {Response}", 
-                    email, response.StatusCode, responseBody);
-                throw new Exception($"SendGrid failed with status code {response.StatusCode}: {responseBody}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending account lockout notification to {Email}", email);
-            throw;
-        }
     }
 
     private string GetAccountLockoutTemplate(string firstName, TimeSpan lockoutDuration, DateTime lockedAt)

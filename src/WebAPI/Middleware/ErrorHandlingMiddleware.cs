@@ -69,8 +69,8 @@ public class ErrorHandlingMiddleware
                         "Database configuration error. Please check connection string configuration.",
                     InvalidOperationException when exception.Message.Contains("JWT") => 
                         "Authentication configuration error. Please check JWT settings.",
-                    InvalidOperationException when exception.Message.Contains("SendGrid") => 
-                        "Email service configuration error. Please check SendGrid settings.",
+                    InvalidOperationException when exception.Message.Contains("Email") || exception.Message.Contains("SQS") => 
+                        "Email service configuration error. Please check EMAIL_QUEUE_URL environment variable.",
                     _ => "An unexpected error occurred"
                 };
                 

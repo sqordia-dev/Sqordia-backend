@@ -1,27 +1,27 @@
 version: '3.8'
 
 services:
-  # SQL Server Database for local development
+  # PostgreSQL Database for local development
   sqordia-db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: postgres:16-alpine
     container_name: sqordia-db-dev
     environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=${DB_PASSWORD}
-      - MSSQL_PID=Developer
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=SqordiaDb
     ports:
-      - "1433:1433"
+      - "5432:5432"
     volumes:
-      - sqordia-db-data:/var/opt/mssql
+      - sqordia-db-data:/var/lib/postgresql/data
     networks:
       - sqordia-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD} -C -Q 'SELECT 1' || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 60s
+      start_period: 10s
 
   sqordia-webapi:
     build:
@@ -35,7 +35,7 @@ services:
       - ASPNETCORE_URLS=http://+:80;https://+:443
       - ASPNETCORE_Kestrel__Certificates__Default__Password=password
       - ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
-      - ConnectionStrings__DefaultConnection=Server=sqordia-db,1433;Database=SqordiaDb;User Id=sa;Password=${DB_PASSWORD};TrustServerCertificate=True;Connection Timeout=30;MultipleActiveResultSets=True;
+      - ConnectionStrings__DefaultConnection=Host=sqordia-db;Port=5432;Database=SqordiaDb;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres};
       - JwtSettings__Secret=${JWT_SECRET}
       - JwtSettings__Issuer=Sqordia
       - JwtSettings__Audience=SqordiaUsers

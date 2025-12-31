@@ -1,0 +1,234 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  AWS_REGION: ca-central-1
+  DOTNET_VERSION: '8.0.x'
+  TERRAFORM_VERSION: '1.6.0'
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+  build-lambda-functions:
+    name: Build Lambda Functions
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build Email Handler
+        run: |
+          cd src/Lambda/EmailHandler/src/Sqordia.Lambda.EmailHandler
+          dotnet publish -c Release -o ../../../../../../infrastructure/terraform/publish/email-handler
+
+      - name: Build AI Generation Handler
+        run: |
+          cd src/Lambda/AIGenerationHandler/src/Sqordia.Lambda.AIGenerationHandler
+          dotnet publish -c Release -o ../../../../../../infrastructure/terraform/publish/ai-generation-handler
+
+      - name: Build Export Handler
+        run: |
+          cd src/Lambda/ExportHandler/src/Sqordia.Lambda.ExportHandler
+          dotnet publish -c Release -o ../../../../../../infrastructure/terraform/publish/export-handler
+
+      - name: Package Lambda Functions
+        run: |
+          cd infrastructure/terraform/publish
+          zip -r ../email-handler.zip email-handler/*
+          zip -r ../ai-generation-handler.zip ai-generation-handler/*
+          zip -r ../export-handler.zip export-handler/*
+
+      - name: Upload Lambda packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-packages
+          path: infrastructure/terraform/*.zip
+          retention-days: 1
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: build-lambda-functions
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Lambda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-packages
+          path: infrastructure/terraform
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: infrastructure/terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform
+        run: terraform plan -out=tfplan
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+          TF_VAR_rds_endpoint: ${{ secrets.RDS_ENDPOINT }}
+          TF_VAR_rds_database_name: ${{ secrets.RDS_DATABASE_NAME }}
+          TF_VAR_s3_bucket_name: ${{ secrets.S3_BUCKET_NAME }}
+          TF_VAR_ses_from_email: ${{ secrets.SES_FROM_EMAIL }}
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: infrastructure/terraform/tfplan
+          retention-days: 1
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Lambda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-packages
+          path: infrastructure/terraform
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: infrastructure/terraform
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: infrastructure/terraform
+        run: terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+          TF_VAR_rds_endpoint: ${{ secrets.RDS_ENDPOINT }}
+          TF_VAR_rds_database_name: ${{ secrets.RDS_DATABASE_NAME }}
+          TF_VAR_s3_bucket_name: ${{ secrets.S3_BUCKET_NAME }}
+          TF_VAR_ses_from_email: ${{ secrets.SES_FROM_EMAIL }}
+
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Run Database Migrations
+        run: |
+          dotnet ef database update \
+            --project src/Infrastructure/Sqordia.Persistence/Sqordia.Persistence.csproj \
+            --startup-project src/WebAPI/WebAPI.csproj \
+            --connection "Host=${{ secrets.RDS_ENDPOINT }};Port=5432;Database=${{ secrets.RDS_DATABASE_NAME }};Username=${{ secrets.RDS_USERNAME }};Password=${{ secrets.RDS_PASSWORD }};SSL Mode=Require;"
+        env:
+          ConnectionStrings__DefaultConnection: "Host=${{ secrets.RDS_ENDPOINT }};Port=5432;Database=${{ secrets.RDS_DATABASE_NAME }};Username=${{ secrets.RDS_USERNAME }};Password=${{ secrets.RDS_PASSWORD }};SSL Mode=Require;"
+
+  health-check:
+    name: Health Check
+    runs-on: ubuntu-latest
+    needs: [terraform-apply, database-migration]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Health Check
+        run: |
+          # Get API endpoint from Terraform outputs (you may need to adjust this)
+          API_URL="https://your-api-endpoint.com"
+          curl -f $API_URL/health || exit 1
+

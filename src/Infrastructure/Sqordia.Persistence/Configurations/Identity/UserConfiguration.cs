@@ -4,7 +4,6 @@ using Sqordia.Domain.Entities.Identity;
 
 namespace Sqordia.Persistence.Configurations.Identity;
 
-// TODO: User entity configuration
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)

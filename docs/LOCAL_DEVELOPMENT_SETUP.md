@@ -14,9 +14,9 @@ Before starting, ensure you have the following installed:
   - Download: https://dotnet.microsoft.com/download/dotnet/8.0
   - Verify: `dotnet --version`
 
-- **SQL Server Management Studio (SSMS)** or **Azure Data Studio** (optional, for database management)
-  - Download SSMS: https://aka.ms/ssmsfullsetup
-  - Download Azure Data Studio: https://aka.ms/azuredatastudio
+- **pgAdmin** or **DBeaver** (optional, for PostgreSQL database management)
+  - Download pgAdmin: https://www.pgadmin.org/download/
+  - Download DBeaver: https://dbeaver.io/download/
 
 - **Postman** (for API testing)
   - Download: https://www.postman.com/downloads/
@@ -25,7 +25,7 @@ Before starting, ensure you have the following installed:
 
 The local development environment consists of:
 
-1. **SQL Server Database** - Containerized SQL Server 2022
+1. **PostgreSQL Database** - Containerized PostgreSQL 16
 2. **Backend API** - ASP.NET Core 8.0 Web API
 3. **Frontend** - React/Vite application served via Nginx
 
@@ -51,9 +51,9 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 
 This command will:
-- Pull SQL Server 2022 image (if not already present)
+- Pull PostgreSQL 16 image (if not already present)
 - Create Docker network (`sqordia-network`)
-- Start SQL Server container (`sqordia-db-dev`)
+- Start PostgreSQL container (`sqordia-db-dev`)
 - Wait for database to be healthy
 - Build and start backend API container (`sqordia-api-dev`)
 
@@ -97,50 +97,40 @@ dotnet ef database update --project src/Infrastructure/Sqordia.Persistence --sta
 
 **Connection String:**
 ```
-Server=localhost,1433;Database=SqordiaDb;User Id=sa;Password=SqordiaDev123!;TrustServerCertificate=True;MultipleActiveResultSets=True;
+Host=localhost;Port=5432;Database=SqordiaDb;Username=postgres;Password=postgres;
 ```
 
 #### 3.2 Seed the Database
 
 Run the seed scripts to populate initial data:
 
-**Option A: Using sqlcmd (if installed)**
+**Option A: Using psql (if installed)**
 ```bash
-sqlcmd -S localhost,1433 -U sa -P "SqordiaDev123!" -d SqordiaDb -i sqlserver/combined_seed.sql
+psql -h localhost -p 5432 -U postgres -d SqordiaDb -f scripts/seed.sql
 ```
 
 **Option B: Using Docker**
 ```bash
 # Copy seed script into container
-docker cp sqlserver/combined_seed.sql sqordia-db-dev:/tmp/combined_seed.sql
+docker cp scripts/seed.sql sqordia-db-dev:/tmp/seed.sql
 
 # Execute the script
-docker exec sqordia-db-dev /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost \
-  -U sa \
-  -P "SqordiaDev123!" \
-  -d SqordiaDb \
-  -i /tmp/combined_seed.sql
+docker exec sqordia-db-dev psql -U postgres -d SqordiaDb -f /tmp/seed.sql
 ```
 
-**Option C: Using SSMS or Azure Data Studio**
-1. Connect to: `localhost,1433`
-2. Username: `sa`
-3. Password: `SqordiaDev123!`
+**Option C: Using pgAdmin or DBeaver**
+1. Connect to: `localhost:5432`
+2. Username: `postgres`
+3. Password: `postgres`
 4. Database: `SqordiaDb`
-5. Open and execute `sqlserver/combined_seed.sql`
+5. Open and execute seed scripts from `scripts/` directory
 
 #### 3.3 Verify Database Seeding
 
 ```bash
 # Check if admin user exists
-docker exec sqordia-db-dev /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost \
-  -U sa \
-  -P "SqordiaDev123!" \
-  -d SqordiaDb \
-  -C \
-  -Q "SELECT Email, UserName FROM Users WHERE Email = 'admin@sqordia.com'"
+docker exec sqordia-db-dev psql -U postgres -d SqordiaDb \
+  -c "SELECT \"Email\", \"UserName\" FROM \"Users\" WHERE \"Email\" = 'admin@sqordia.com'"
 ```
 
 ### Step 4: Start Frontend
@@ -197,11 +187,11 @@ After seeding the database:
 
 - **Container:** `sqordia-db-dev`
 - **Image:** `mcr.microsoft.com/mssql/server:2022-latest`
-- **Port:** `1433`
-- **Username:** `sa`
-- **Password:** `SqordiaDev123!` (default, can be changed via `SA_PASSWORD` env var)
+- **Port:** `5432`
+- **Username:** `postgres`
+- **Password:** `postgres` (default, can be changed via `POSTGRES_PASSWORD` env var)
 - **Database:** `SqordiaDb`
-- **Connection String:** `Server=localhost,1433;Database=SqordiaDb;User Id=sa;Password=SqordiaDev123!;TrustServerCertificate=True;`
+- **Connection String:** `Host=localhost;Port=5432;Database=SqordiaDb;Username=postgres;Password=postgres;`
 
 ### Backend API
 
@@ -214,9 +204,9 @@ After seeding the database:
 **Environment Variables:**
 - `ASPNETCORE_ENVIRONMENT=Development`
 - `ASPNETCORE_URLS=http://+:8080`
-- `ConnectionStrings__DefaultConnection=Server=sqordia-db,1433;Database=SqordiaDb;...`
+- `ConnectionStrings__DefaultConnection=Host=sqordia-db;Port=5432;Database=SqordiaDb;...`
 - `JwtSettings__Secret=S6075c41562a35879f7e40220d435f1f6972c7c7a9deea0c5`
-- `Database__Provider=SQLServer` (for local development)
+- `Database__Provider=PostgreSQL` (for local development)
 
 ### Frontend
 
@@ -342,7 +332,7 @@ docker rmi sqordia-frontend:dev
    ```bash
    lsof -i :5241  # Backend
    lsof -i :5173  # Frontend
-   lsof -i :1433  # Database
+   lsof -i :5432  # Database
    ```
 2. Stop the conflicting service
 3. Or change ports in `docker-compose.dev.yml`
@@ -405,7 +395,7 @@ curl -X POST http://localhost:5241/api/v1/auth/login \
 
 Set these in `docker-compose.dev.yml` or as environment variables:
 
-- `SA_PASSWORD` - SQL Server SA password (default: `SqordiaDev123!`)
+- `POSTGRES_PASSWORD` - PostgreSQL password (default: `postgres`)
 - `JWT_SECRET` - JWT signing secret
 - `JWT_ISSUER` - JWT issuer (default: `Sqordia`)
 - `JWT_AUDIENCE` - JWT audience (default: `SqordiaUsers`)
@@ -446,7 +436,7 @@ docker stop sqordia-frontend-dev && docker rm sqordia-frontend-dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:5241
 - Swagger: http://localhost:5241/swagger
-- Database: localhost:1433
+- Database: localhost:5432
 
 ### Default Credentials
 

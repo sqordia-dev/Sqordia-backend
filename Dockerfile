@@ -38,9 +38,10 @@ ENV ASPNETCORE_URLS=http://+:8080
 # Expose port 8080 (standard for containerized apps)
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD curl --fail http://localhost:8080/health || exit 1
+# Health check removed - curl is not available in .NET runtime image
+# ECS Fargate will use application-level health checks via /health endpoint
+# HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+#   CMD curl --fail http://localhost:8080/health || exit 1
 
 # Start the application
 ENTRYPOINT ["dotnet", "WebAPI.dll"]

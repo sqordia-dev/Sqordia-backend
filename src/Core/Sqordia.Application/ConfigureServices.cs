@@ -43,6 +43,12 @@ public static class ConfigureServices
             // AI Prompt management service
             services.AddScoped<IAIPromptService, AIPromptService>();
 
+            // Settings service
+            services.AddScoped<ISettingsService, SettingsService>();
+
+            // Feature flags service
+            services.AddScoped<IFeatureFlagsService, FeatureFlagsService>();
+
             return services;
     }
 }

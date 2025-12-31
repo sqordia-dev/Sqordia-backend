@@ -1,0 +1,58 @@
+using Amazon.SimpleEmail;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Sqordia.Lambda.EmailHandler.Configuration;
+using Sqordia.Lambda.EmailHandler.Services;
+
+namespace Sqordia.Lambda.EmailHandler;
+
+/// <summary>
+/// Startup class for configuring dependency injection
+/// </summary>
+public static class Startup
+{
+    /// <summary>
+    /// Configure services for dependency injection
+    /// </summary>
+    public static IServiceProvider ConfigureServices()
+    {
+        var services = new ServiceCollection();
+
+        // Configuration
+        var configuration = new ConfigurationBuilder()
+            .AddEnvironmentVariables()
+            .Build();
+
+        var lambdaConfig = new LambdaConfiguration
+        {
+            RdsEndpoint = configuration["RDS_ENDPOINT"] ?? string.Empty,
+            DatabaseName = configuration["DATABASE_NAME"] ?? "SqordiaDb",
+            DatabaseUsername = configuration["DATABASE_USERNAME"] ?? "sqordia_admin",
+            SesFromEmail = configuration["SES_FROM_EMAIL"] ?? "noreply@sqordia.com",
+            SesFromName = configuration["SES_FROM_NAME"] ?? "Sqordia",
+            AwsRegion = configuration["AWS_REGION"] ?? "ca-central-1",
+            Environment = configuration["ENVIRONMENT"] ?? "production"
+        };
+
+        services.AddSingleton(Options.Create(lambdaConfig));
+
+        // AWS Services
+        var region = Amazon.RegionEndpoint.GetBySystemName(lambdaConfig.AwsRegion);
+        services.AddSingleton<IAmazonSimpleEmailService>(_ =>
+            new AmazonSimpleEmailServiceClient(region));
+
+        // Logging
+        services.AddLogging(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        // Application Services
+        services.AddScoped<IEmailProcessor, EmailProcessor>();
+
+        return services.BuildServiceProvider();
+    }
+}
+

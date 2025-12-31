@@ -10,13 +10,13 @@ This guide explains how to set up and run the Sqordia API locally for developmen
 - **Git** - [Download](https://git-scm.com/downloads)
 
 ### Optional (for database management)
-- **Azure Data Studio** or **SQL Server Management Studio (SSMS)** - For database management
+- **pgAdmin** or **DBeaver** - For PostgreSQL database management
 
 ## Quick Start
 
 ### Option 1: Full Docker Setup (Recommended)
 
-Runs both the API and SQL Server in Docker containers.
+Runs both the API and PostgreSQL in Docker containers.
 
 1. **Clone the repository**
    ```bash
@@ -35,15 +35,15 @@ Runs both the API and SQL Server in Docker containers.
    - **Health Check**: http://localhost:5241/health
 
 The setup includes:
-- SQL Server 2022 container with automatic migrations
+- PostgreSQL 16 container with automatic migrations
 - API container that waits for database to be ready
 - Persistent database storage (data survives container restarts)
 
-### Option 2: Local Development (API + Docker SQL Server)
+### Option 2: Local Development (API + Docker PostgreSQL)
 
-Run the API locally with .NET while using SQL Server in Docker.
+Run the API locally with .NET while using PostgreSQL in Docker.
 
-1. **Start SQL Server container only**
+1. **Start PostgreSQL container only**
    ```bash
    docker-compose -f docker-compose.dev.yml up sqordia-db -d
    ```
@@ -75,19 +75,20 @@ Run the API locally with .NET while using SQL Server in Docker.
 
 ## Configuration
 
-### SQL Server Connection
+### PostgreSQL Connection
 
-The application is configured to use a local SQL Server container:
+The application is configured to use a local PostgreSQL container:
 
 **Connection Details:**
-- **Server**: `localhost,1433` (from host) or `sqordia-db` (from Docker network)
+- **Host**: `localhost` (from host) or `sqordia-db` (from Docker network)
+- **Port**: `5432`
 - **Database**: `SqordiaDb`
-- **Username**: `sa`
-- **Password**: `SqordiaDev123!`
+- **Username**: `postgres`
+- **Password**: `postgres` (default, configure via POSTGRES_PASSWORD env var)
 
 **Connection String:**
 ```
-Server=localhost,1433;Database=SqordiaDb;User Id=sa;Password=SqordiaDev123!;TrustServerCertificate=True;MultipleActiveResultSets=True;Connection Timeout=30;
+Host=localhost;Port=5432;Database=SqordiaDb;Username=postgres;Password=postgres;
 ```
 
 This is already configured in `appsettings.Development.json` for local development.
@@ -112,20 +113,18 @@ export GEMINI_API_KEY=your-gemini-key
 
 ## Database Management
 
-### Connect with Azure Data Studio or SSMS
+### Connect with pgAdmin or DBeaver
 
 1. **Connection Details:**
-   - Server: `localhost,1433`
-   - Authentication: SQL Server Authentication
-   - Username: `sa`
-   - Password: `SqordiaDev123!`
+   - Host: `localhost`
+   - Port: `5432`
    - Database: `SqordiaDb`
+   - Username: `postgres`
+   - Password: `postgres` (default)
 
 2. **Connect via Command Line**
    ```bash
-   docker exec -it sqordia-db-dev /opt/mssql-tools/bin/sqlcmd \
-     -S localhost -U sa -P SqordiaDev123! \
-     -Q "SELECT @@VERSION"
+   docker exec -it sqordia-db-dev psql -U postgres -d SqordiaDb
    ```
 
 ### Run Migrations Manually
@@ -265,7 +264,7 @@ lsof -ti:5241
 lsof -ti:5241 | xargs kill -9
 ```
 
-**Port 1433 (SQL Server)**
+**Port 5432 (PostgreSQL)**
 ```bash
 # Check if port is in use
 lsof -ti:1433

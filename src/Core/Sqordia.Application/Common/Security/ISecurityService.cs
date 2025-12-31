@@ -1,6 +1,8 @@
 namespace Sqordia.Application.Common.Security;
 
-// TODO: Security service interface
+/// <summary>
+/// Security service interface for password hashing and token generation
+/// </summary>
 public interface ISecurityService
 {
     string HashPassword(string password);

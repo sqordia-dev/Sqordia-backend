@@ -10,28 +10,12 @@ public static class ConfigurationExtensions
     {
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<GoogleOAuthSettings>(configuration.GetSection(GoogleOAuthSettings.SectionName));
-        services.Configure<SendGridSettings>(configuration.GetSection(SendGridSettings.SectionName));
         services.PostConfigure<JwtSettings>(options =>
         {
             var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET");
             if (!string.IsNullOrEmpty(jwtSecret))
             {
                 options.Secret = jwtSecret;
-            }
-        });
-
-        services.PostConfigure<SendGridSettings>(options =>
-        {
-            var apiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY");
-            if (!string.IsNullOrEmpty(apiKey))
-            {
-                options.ApiKey = apiKey;
-            }
-
-            var fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL");
-            if (!string.IsNullOrEmpty(fromEmail))
-            {
-                options.FromEmail = fromEmail;
             }
         });
 
@@ -51,7 +35,6 @@ public static class ConfigurationExtensions
         });
 
         services.AddSingleton<IValidateOptions<JwtSettings>, JwtSettingsValidator>();
-        services.AddSingleton<IValidateOptions<SendGridSettings>, SendGridSettingsValidator>();
 
         return services;
     }

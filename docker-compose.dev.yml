@@ -13,9 +13,9 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       
-      # Database Connection - Using local SQL Server container
-      # The service name 'sqordia-db' is used to connect to the SQL Server container
-      - ConnectionStrings__DefaultConnection=Server=sqordia-db,1433;Database=SqordiaDb;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;MultipleActiveResultSets=True;Connection Timeout=30;
+      # Database Connection - Using local PostgreSQL container
+      # The service name 'sqordia-db' is used to connect to the PostgreSQL container
+      - ConnectionStrings__DefaultConnection=Host=sqordia-db;Port=5432;Database=SqordiaDb;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres};
       
       # JWT Settings
       - JwtSettings__Secret=${JWT_SECRET:}
@@ -37,17 +37,15 @@ services:
       # Alternative AI Providers (optional)
       - AI__Claude__ApiKey=${CLAUDE_API_KEY:-}
       - AI__Gemini__ApiKey=${GEMINI_API_KEY:-}
-      - AI__AzureOpenAI__Endpoint=${AZURE_OPENAI_ENDPOINT:-}
-      - AI__AzureOpenAI__ApiKey=${AZURE_OPENAI_API_KEY:-}
       
       # SendGrid Configuration (using appsettings.Development.json via mounted volume)
       # Only set if environment variable is provided, otherwise use appsettings file
       - SendGrid__FromEmail=${SENDGRID_FROM_EMAIL:-sqordia.dev@gmail.com}
       - SendGrid__FromName=${SENDGRID_FROM_NAME:-Sqordia}
       
-      # Azure Storage (optional)
-      - AzureStorage__ConnectionString=${AZURE_STORAGE_CONNECTION_STRING:-}
-      - AzureStorage__ContainerName=${AZURE_STORAGE_CONTAINER_NAME:-documents}
+      # AWS Storage (optional)
+      - AwsStorage__BucketName=${S3_BUCKET_NAME:-sqordia-documents}
+      - AwsStorage__Region=${AWS_REGION:-ca-central-1}
       
       # Disable HTTPS redirect for Docker development
       - DISABLE_HTTPS_REDIRECT=true
@@ -67,27 +65,27 @@ services:
       retries: 3
       start_period: 40s
 
-  # Local SQL Server container for development
+  # Local PostgreSQL container for development
   sqordia-db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: postgres:16-alpine
     container_name: sqordia-db-dev
     environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=${SA_PASSWORD}
-      - MSSQL_PID=Developer
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=SqordiaDb
     ports:
-      - "1433:1433"  # Expose SQL Server port for external tools (SSMS, Azure Data Studio, etc.)
+      - "5432:5432"  # Expose PostgreSQL port for external tools (pgAdmin, DBeaver, etc.)
     volumes:
-      - sqordia-db-data:/var/opt/mssql
+      - sqordia-db-data:/var/lib/postgresql/data
     networks:
       - sqordia-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${SA_PASSWORD} -C -Q 'SELECT 1' || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 60s
+      start_period: 10s
 
 networks:
   sqordia-network:

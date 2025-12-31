@@ -4,7 +4,6 @@ using Sqordia.Domain.ValueObjects;
 
 namespace Sqordia.Domain.Entities.Identity;
 
-// TODO: Implement user entity
 public class User : BaseAuditableEntity
 {
     public string FirstName { get; private set; } = null!;

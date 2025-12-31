@@ -76,6 +76,9 @@ public interface IApplicationDbContext
     // Subscription Management
     DbSet<SubscriptionPlan> SubscriptionPlans { get; }
     DbSet<Subscription> Subscriptions { get; }
+    
+    // Application Settings
+    DbSet<Settings> Settings { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default);

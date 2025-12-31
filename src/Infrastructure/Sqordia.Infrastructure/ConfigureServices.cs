@@ -1,8 +1,10 @@
+using Amazon.S3;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging;
-using SendGrid;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
+using Amazon.SQS;
 using Sqordia.Application.Common.Interfaces;
 using Sqordia.Application.Common.Security;
 using Sqordia.Application.Services;
@@ -22,31 +24,52 @@ public static class ConfigureServices
         // HTTP Context for getting client IP address
         services.AddHttpContextAccessor();
 
-        // Email service (SendGrid) - Required for email verification
-        // Try multiple configuration sources: environment variable, then appsettings files
-        var sendGridApiKey = configuration["SendGrid:ApiKey"];
+        // Email service (AWS SES via SQS) - Emails are sent to SQS queue and processed by Lambda
+        var emailQueueUrl = configuration["EMAIL_QUEUE_URL"] ?? Environment.GetEnvironmentVariable("EMAIL_QUEUE_URL");
+        // Use same region as S3 storage (read from environment variable first)
+        var awsRegion = (Environment.GetEnvironmentVariable("AwsStorage__Region") 
+                       ?? configuration["AwsStorage:Region"] 
+                       ?? "ca-central-1").Trim();
         
-        // If empty string from environment variable, try to get from appsettings
-        if (string.IsNullOrWhiteSpace(sendGridApiKey) || sendGridApiKey == string.Empty)
+        // Validate AWS region early
+        if (string.IsNullOrWhiteSpace(awsRegion))
         {
-            sendGridApiKey = configuration.GetSection("SendGrid")["ApiKey"];
+            throw new InvalidOperationException("AWS Region is not configured. Set AwsStorage:Region in configuration or AwsStorage__Region environment variable.");
         }
         
-        if (string.IsNullOrWhiteSpace(sendGridApiKey))
+        Amazon.RegionEndpoint regionEndpoint;
+        try
         {
-            throw new InvalidOperationException(
-                "SendGrid API key is required. Please set the SENDGRID_API_KEY environment variable or configure it in appsettings.json or appsettings.Development.json");
+            regionEndpoint = Amazon.RegionEndpoint.GetBySystemName(awsRegion);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException($"Invalid AWS region '{awsRegion}'. Valid regions include: us-east-1, ca-central-1, eu-west-1, etc. Received value: '{awsRegion}'", ex);
         }
         
-        services.AddTransient<ISendGridClient>(sp =>
-            new SendGridClient(sendGridApiKey));
-        services.AddTransient<IEmailService>(sp =>
-            new EmailService(
-                sp.GetRequiredService<ISendGridClient>(),
-                configuration["SendGrid:FromEmail"]!,
-                configuration["SendGrid:FromName"]!,
-                sp.GetRequiredService<ILogger<EmailService>>(),
-                sp.GetRequiredService<ILocalizationService>()));
+        if (string.IsNullOrWhiteSpace(emailQueueUrl))
+        {
+            // Email service is optional - if queue URL is not configured, emails will be logged but not sent
+            services.AddTransient<IEmailService>(sp =>
+                new EmailService(
+                    null, // SQS client will be created if queue URL is available
+                    emailQueueUrl,
+                    awsRegion,
+                    sp.GetRequiredService<ILogger<EmailService>>(),
+                    sp.GetRequiredService<ILocalizationService>()));
+        }
+        else
+        {
+            // Configure AWS SQS client for email queue
+            services.AddSingleton<IAmazonSQS>(_ => new AmazonSQSClient(regionEndpoint));
+            services.AddTransient<IEmailService>(sp =>
+                new EmailService(
+                    sp.GetRequiredService<IAmazonSQS>(),
+                    emailQueueUrl,
+                    awsRegion,
+                    sp.GetRequiredService<ILogger<EmailService>>(),
+                    sp.GetRequiredService<ILocalizationService>()));
+        }
 
         // Security service - Required for password hashing
         services.AddTransient<ISecurityService, SecurityService>();
@@ -116,6 +139,30 @@ public static class ConfigureServices
         
         // Subscription service
         services.AddScoped<Sqordia.Application.Services.ISubscriptionService, SubscriptionService>();
+
+        // AWS S3 Storage service
+        // Reuse awsRegion and regionEndpoint variables declared earlier for Email service
+        var awsStorageSettings = new AwsStorageSettings
+        {
+            BucketName = Environment.GetEnvironmentVariable("AwsStorage__BucketName")
+                        ?? configuration["AwsStorage:BucketName"] 
+                        ?? "sqordia-documents",
+            Region = awsRegion
+        };
+        services.AddSingleton(Options.Create(awsStorageSettings));
+        
+        // Reuse the validated regionEndpoint from above
+        services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(regionEndpoint));
+        services.AddScoped<IStorageService, S3StorageService>();
+
+        // Memory cache for settings caching
+        services.AddMemoryCache();
+
+        // Settings encryption service
+        services.AddSingleton<ISettingsEncryptionService, SettingsEncryptionService>();
+
+        // Settings cache service
+        services.AddScoped<ISettingsCacheService, SettingsCacheService>();
 
         return services;
     }

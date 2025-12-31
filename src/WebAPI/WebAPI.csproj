@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>323c0853-79fe-46f7-aed0-838296c705c6</UserSecretsId>
+    <!-- Suppress AWSSDK version conflict warning - runtime compatibility is maintained -->
+    <NoWarn>NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +20,11 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <!-- CloudWatch sink removed temporarily due to AWSSDK version conflict -->
+    <!-- Will use console and file sinks for now, CloudWatch can be added later -->
+    <!-- <PackageReference Include="Serilog.Sinks.AwsCloudWatch" Version="4.4.42" /> -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
   </ItemGroup>
 

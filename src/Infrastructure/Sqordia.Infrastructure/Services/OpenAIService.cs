@@ -1,5 +1,3 @@
-using Azure;
-using Azure.AI.OpenAI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -22,8 +20,6 @@ public class OpenAISettings
 {
     public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = "gpt-4";
-    public string Endpoint { get; set; } = string.Empty; // Optional: for Azure OpenAI
-    public bool UseAzure { get; set; } = false;
 }
 
 public class OpenAIService : IAIService
@@ -39,37 +35,17 @@ public class OpenAIService : IAIService
         _logger = logger;
         _settings = settings.Value;
 
-        // Log configuration for debugging - use Console.WriteLine as backup
-        Console.WriteLine("=== OpenAI SERVICE CONSTRUCTOR CALLED ===");
-        Console.WriteLine($"ApiKey configured: {!string.IsNullOrEmpty(_settings.ApiKey)}, Length: {(string.IsNullOrEmpty(_settings.ApiKey) ? 0 : _settings.ApiKey.Length)}, Model: {_settings.Model}");
-        
-        _logger.LogCritical("=== OpenAI SERVICE CONSTRUCTOR CALLED ===");
-        _logger.LogInformation("OpenAI Settings - ApiKey configured: {HasKey}, Model: {Model}, UseAzure: {UseAzure}, ApiKey length: {Length}", 
-            !string.IsNullOrEmpty(_settings.ApiKey), _settings.Model, _settings.UseAzure, 
+        _logger.LogInformation("OpenAI Settings - ApiKey configured: {HasKey}, Model: {Model}, ApiKey length: {Length}", 
+            !string.IsNullOrEmpty(_settings.ApiKey), _settings.Model, 
             string.IsNullOrEmpty(_settings.ApiKey) ? 0 : _settings.ApiKey.Length);
-        _logger.LogWarning("OpenAI Service - ApiKey first 10 chars: {Prefix}", 
-            string.IsNullOrEmpty(_settings.ApiKey) ? "EMPTY" : _settings.ApiKey.Substring(0, Math.Min(10, _settings.ApiKey.Length)));
 
         if (!string.IsNullOrEmpty(_settings.ApiKey))
         {
             try
             {
-                if (_settings.UseAzure && !string.IsNullOrEmpty(_settings.Endpoint))
-                {
-                    // Azure OpenAI
-                    _logger.LogInformation("Initializing Azure OpenAI client with endpoint: {Endpoint}", _settings.Endpoint);
-                    var azureClient = new AzureOpenAIClient(
-                        new Uri(_settings.Endpoint),
-                        new AzureKeyCredential(_settings.ApiKey));
-                    _chatClient = azureClient.GetChatClient(_settings.Model);
-                }
-                else
-                {
-                    // Standard OpenAI
-                    _logger.LogInformation("Initializing standard OpenAI client with model: {Model}", _settings.Model);
-                    var openAIClient = new OpenAIClient(new ApiKeyCredential(_settings.ApiKey));
-                    _chatClient = openAIClient.GetChatClient(_settings.Model);
-                }
+                _logger.LogInformation("Initializing OpenAI client with model: {Model}", _settings.Model);
+                var openAIClient = new OpenAIClient(new ApiKeyCredential(_settings.ApiKey));
+                _chatClient = openAIClient.GetChatClient(_settings.Model);
 
                 _logger.LogInformation("OpenAI service initialized successfully with model: {Model}", _settings.Model);
             }
@@ -80,8 +56,7 @@ public class OpenAIService : IAIService
         }
         else
         {
-            _logger.LogWarning("OpenAI API key not configured. AI features will be unavailable. ApiKey value: '{ApiKey}'", 
-                string.IsNullOrEmpty(_settings.ApiKey) ? "null or empty" : "***");
+            _logger.LogWarning("OpenAI API key not configured. AI features will be unavailable.");
         }
     }
 
@@ -172,12 +147,6 @@ public class OpenAIService : IAIService
 
     public async Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default)
     {
-        // Log detailed information about why service might be unavailable
-        Console.WriteLine($"[IsAvailableAsync] _chatClient is null: {_chatClient == null}");
-        Console.WriteLine($"[IsAvailableAsync] ApiKey configured: {!string.IsNullOrEmpty(_settings.ApiKey)}");
-        Console.WriteLine($"[IsAvailableAsync] ApiKey length: {(string.IsNullOrEmpty(_settings.ApiKey) ? 0 : _settings.ApiKey.Length)}");
-        Console.WriteLine($"[IsAvailableAsync] Model: {_settings.Model}");
-        
         if (_chatClient == null)
         {
             _logger.LogWarning("OpenAI service unavailable: _chatClient is null. ApiKey configured: {HasKey}, ApiKey length: {Length}, Model: {Model}", 

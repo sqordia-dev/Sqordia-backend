@@ -6,9 +6,10 @@ A comprehensive business plan management system built with ASP.NET Core 8, follo
 
 ### Prerequisites
 - .NET 8 SDK
-- Docker Desktop (for local development with SQL Server)
+- Docker Desktop (for local development with PostgreSQL)
 - SendGrid account (for emails)
 - OpenAI API key (optional, for AI features)
+- AWS Account (for production deployment)
 
 ### Local Development with Docker
 
@@ -24,7 +25,7 @@ docker-compose -f docker-compose.dev.yml up --build
 ```
 
 The setup includes:
-- SQL Server 2022 container (localhost:1433)
+- PostgreSQL 16 container (localhost:5432)
 - API container (localhost:5241)
 - Automatic database migrations
 - Health checks and restart policies
@@ -40,12 +41,14 @@ The setup includes:
 ```bash
 # Required
 JWT_SECRET=your-super-secret-key-here
-ConnectionStrings__DefaultConnection=Server=localhost,1433;Database=SqordiaDb;User Id=sa;Password=YourPassword;TrustServerCertificate=True;
+ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=SqordiaDb;Username=postgres;Password=postgres;
 SENDGRID_API_KEY=your-sendgrid-api-key
 SENDGRID_FROM_EMAIL=your-email@domain.com
 
 # Optional AI Providers
 OPENAI_API_KEY=your-openai-key
+CLAUDE_API_KEY=your-claude-key
+GEMINI_API_KEY=your-gemini-key
 ```
 
 2. **Run the application**
@@ -93,10 +96,11 @@ Sqordia/
 
 ### Core Technologies
 - **Framework**: ASP.NET Core 8.0
-- **Database**: SQL Server with EF Core 8
+- **Database**: PostgreSQL with EF Core 8
 - **Authentication**: JWT Bearer tokens
-- **Email**: SendGrid
-- **File Storage**: Azure Blob Storage
+- **Email**: SendGrid (migrating to AWS SES)
+- **File Storage**: AWS S3
+- **Cloud Provider**: AWS (Lightsail, RDS, S3, SES, Lambda, SQS)
 
 ### Key Packages
 - **AutoMapper** - Object mapping
@@ -112,8 +116,9 @@ Sqordia/
 The application uses strongly-typed configuration via IOptions pattern:
 
 **Database:**
-- `ConnectionStrings__DefaultConnection` - SQL Server connection string
-- `CONNECTION_STRING` - Alternative format (for convenience)
+- `ConnectionStrings__DefaultConnection` - PostgreSQL connection string
+  - Local: `Host=localhost;Port=5432;Database=SqordiaDb;Username=postgres;Password=postgres;`
+  - Production (RDS): `Host={RDS_ENDPOINT};Port=5432;Database={DATABASE_NAME};Username={USERNAME};Password={PASSWORD};SSL Mode=Require;`
 
 **JWT Settings:**
 - `JWT_SECRET` - JWT signing secret (32+ characters)
@@ -132,6 +137,11 @@ The application uses strongly-typed configuration via IOptions pattern:
 **Google OAuth:**
 - `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth client secret
+
+**AWS Configuration:**
+- `AWS_REGION` - AWS region (default: ca-central-1)
+- `AwsStorage__BucketName` - S3 bucket name for file storage
+- `AwsStorage__Region` - S3 region (default: ca-central-1)
 
 ### Configuration Files
 
@@ -166,10 +176,10 @@ Full API documentation available at `/swagger` when running in Development mode.
 docker-compose -f docker-compose.dev.yml up --build
 ```
 
-### SQL Server Container
-- **Server**: `sqordia-db` (from API container) or `localhost,1433` (from host)
-- **Username**: `sa`
-- **Password**: `SqordiaDev123!` (configured in docker-compose.dev.yml)
+### PostgreSQL Container
+- **Server**: `sqordia-db` (from API container) or `localhost:5432` (from host)
+- **Username**: `postgres`
+- **Password**: `postgres` (default, configure via POSTGRES_PASSWORD env var)
 - **Database**: `SqordiaDb` (created automatically via migrations)
 
 ### Managing Containers
@@ -204,14 +214,27 @@ dotnet test tests/Sqordia.WebAPI.IntegrationTests
 
 ## Deployment
 
-### Azure App Service
-The application is configured for Azure App Service deployment with:
-- **Database**: Azure SQL Server
-- **CI/CD**: GitHub Actions
-- **Environment**: Production settings in `appsettings.Production.json`
+### AWS Deployment
+The application is configured for AWS deployment with:
+- **Hosting**: AWS Lightsail Container Service
+- **Database**: AWS RDS PostgreSQL
+- **File Storage**: AWS S3
+- **Email**: AWS SES (via Lambda functions)
+- **CI/CD**: GitHub Actions with Terraform
+- **Region**: ca-central-1 (Canada Central)
+
+### Deployment via GitHub Actions
+The application automatically deploys to AWS when you push to:
+- `main` branch → Production environment
+- `develop` branch → Staging environment
+
+See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for detailed setup instructions.
+
+### Infrastructure as Code
+All AWS infrastructure is managed via Terraform in `infrastructure/terraform/`.
 
 ### Production Environment Variables
-All production secrets should be configured via Azure App Service Configuration or Key Vault.
+All production secrets should be configured via GitHub Secrets or AWS Secrets Manager.
 
 ## Code Architecture
 
