@@ -1,84 +1,86 @@
--- Create Admin User with All Permissions
+-- Create Admin User with All Permissions (PostgreSQL)
 -- This script creates an admin user and assigns the Admin role
--- Run this after SeedAzureDatabase_Working.sql has been executed
 
 -- 1. Create Admin User
-INSERT INTO [Users] (
-    [Id], 
-    [FirstName], 
-    [LastName], 
-    [Email], 
-    [UserName], 
-    [PasswordHash], 
-    [IsEmailConfirmed], 
-    [EmailConfirmedAt], 
-    [IsActive], 
-    [UserType], 
-    [AccessFailedCount], 
-    [LockoutEnabled], 
-    [LockoutEnd],
-    [PhoneNumberVerified],
-    [RequirePasswordChange],
-    [Provider],
-    [PasswordLastChangedAt],
-    [Created], 
-    [IsDeleted]
+INSERT INTO "Users" (
+    "Id", 
+    "FirstName", 
+    "LastName", 
+    "Email", 
+    "UserName", 
+    "PasswordHash", 
+    "IsEmailConfirmed", 
+    "EmailConfirmedAt", 
+    "IsActive", 
+    "UserType", 
+    "AccessFailedCount", 
+    "LockoutEnabled", 
+    "LockoutEnd",
+    "PhoneNumberVerified",
+    "RequirePasswordChange",
+    "Provider",
+    "PasswordLastChangedAt",
+    "Created", 
+    "IsDeleted"
 )
 VALUES (
-    CAST('758afb07-3e8c-4259-995f-42f05af13b78' AS UNIQUEIDENTIFIER),
+    '758afb07-3e8c-4259-995f-42f05af13b78'::uuid,
     'Admin',
     'User',
     'admin@sqordia.com',
     'admin@sqordia.com',
     '$2a$11$mQQQUzX12zagdYn5YrbKN.PvvUZ8XHn7DsqjAvoYsXsVXJ6SSdKFa', -- Password: Sqordia2025!
-    1, -- IsEmailConfirmed (true)
-    GETUTCDATE(), -- EmailConfirmedAt
-    1, -- IsActive (true)
+    true, -- IsEmailConfirmed
+    NOW() AT TIME ZONE 'UTC', -- EmailConfirmedAt
+    true, -- IsActive
     'Entrepreneur', -- UserType (valid values: Entrepreneur, OBNL, Consultant)
     0, -- AccessFailedCount
-    1, -- LockoutEnabled (true)
+    true, -- LockoutEnabled
     NULL, -- LockoutEnd (not locked)
-    0, -- PhoneNumberVerified (false)
-    0, -- RequirePasswordChange (false)
+    false, -- PhoneNumberVerified
+    false, -- RequirePasswordChange
     'local', -- Provider
-    GETUTCDATE(), -- PasswordLastChangedAt
-    GETUTCDATE(), -- Created
-    0 -- IsDeleted (false)
+    NOW() AT TIME ZONE 'UTC', -- PasswordLastChangedAt
+    NOW() AT TIME ZONE 'UTC', -- Created
+    false -- IsDeleted
 );
 
 -- 2. Assign Admin Role to Admin User
-INSERT INTO [UserRoles] ([Id], [UserId], [RoleId])
+INSERT INTO "UserRoles" ("Id", "UserId", "RoleId")
 VALUES (
-    NEWID(),
-    CAST('758afb07-3e8c-4259-995f-42f05af13b78' AS UNIQUEIDENTIFIER),
-    CAST('6FE80855-70FF-4863-92B1-7EE266426DEE' AS UNIQUEIDENTIFIER) -- Admin role
+    gen_random_uuid(),
+    '758afb07-3e8c-4259-995f-42f05af13b78'::uuid,
+    '6FE80855-70FF-4863-92B1-7EE266426DEE'::uuid -- Admin role
 );
 
 -- 3. Add Admin User to Default Organization (if organization exists)
-INSERT INTO [OrganizationMembers] (
-    [Id], 
-    [OrganizationId], 
-    [UserId], 
-    [Role], 
-    [IsActive], 
-    [JoinedAt], 
-    [Created], 
-    [IsDeleted]
+INSERT INTO "OrganizationMembers" (
+    "Id", 
+    "OrganizationId", 
+    "UserId", 
+    "Role", 
+    "IsActive", 
+    "JoinedAt", 
+    "Created", 
+    "IsDeleted"
 )
 SELECT 
-    NEWID(),
-    o.[Id],
-    CAST('758afb07-3e8c-4259-995f-42f05af13b78' AS UNIQUEIDENTIFIER),
+    gen_random_uuid(),
+    o."Id",
+    '758afb07-3e8c-4259-995f-42f05af13b78'::uuid,
     'Admin',
-    1, -- IsActive
-    GETUTCDATE(), -- JoinedAt
-    GETUTCDATE(), -- Created
-    0 -- IsDeleted
-FROM [Organizations] o
-WHERE o.[Name] = 'Sqordia Default Organization';
+    true, -- IsActive
+    NOW() AT TIME ZONE 'UTC', -- JoinedAt
+    NOW() AT TIME ZONE 'UTC', -- Created
+    false -- IsDeleted
+FROM "Organizations" o
+WHERE o."Name" = 'Sqordia Default Organization';
 
-PRINT 'Admin user created successfully!';
-PRINT 'Email: admin@sqordia.com';
-PRINT 'Password: Sqordia2025!';
-PRINT 'Role: Admin (with all permissions)';
+DO $$
+BEGIN
+    RAISE NOTICE 'Admin user created successfully!';
+    RAISE NOTICE 'Email: admin@sqordia.com';
+    RAISE NOTICE 'Password: Sqordia2025!';
+    RAISE NOTICE 'Role: Admin (with all permissions)';
+END $$;
 

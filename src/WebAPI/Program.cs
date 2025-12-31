@@ -32,16 +32,7 @@ try
         });
     }
     
-    // Configure Serilog with CloudWatch for production
-    var awsRegion = builder.Configuration["AwsStorage:Region"] ?? "ca-central-1";
-    var logGroupName = builder.Configuration["Serilog:CloudWatch:LogGroupName"] ?? "/aws/sqordia/api";
-    var logStreamName = builder.Configuration["Serilog:CloudWatch:LogStreamName"];
-    if (string.IsNullOrEmpty(logStreamName))
-    {
-        logStreamName = $"{Environment.MachineName}-{DateTime.UtcNow:yyyyMMddHHmmss}";
-    }
-    var isProduction = builder.Environment.IsProduction();
-    
+    // Configure Serilog (CloudWatch sink disabled due to AWSSDK version conflict)
     builder.Host.UseSerilog((context, services, configuration) =>
     {
         configuration

@@ -19,35 +19,19 @@ public static class ConfigureServices
         services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
         {
             // Get connection string from configuration
-            var (connectionString, databaseProvider) = GetConnectionString(configuration);
+            var connectionString = GetConnectionString(configuration);
 
-            // Configure based on detected database provider
-            if (databaseProvider == DatabaseProvider.PostgreSQL)
-            {
-                options.UseNpgsql(
-                    connectionString,
-                    npgsqlOptions =>
-                    {
-                        npgsqlOptions.EnableRetryOnFailure(
-                            maxRetryCount: 3,
-                            maxRetryDelay: TimeSpan.FromSeconds(30),
-                            errorCodesToAdd: null);
-                        npgsqlOptions.CommandTimeout(60);
-                    });
-            }
-            else
-            {
-                options.UseSqlServer(
-                    connectionString,
-                    sqlServerOptions =>
-                    {
-                        sqlServerOptions.EnableRetryOnFailure(
-                            maxRetryCount: 3,
-                            maxRetryDelay: TimeSpan.FromSeconds(30),
-                            errorNumbersToAdd: null);
-                        sqlServerOptions.CommandTimeout(60);
-                    });
-            }
+            // Use PostgreSQL only
+            options.UseNpgsql(
+                connectionString,
+                npgsqlOptions =>
+                {
+                    npgsqlOptions.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(30),
+                        errorCodesToAdd: null);
+                    npgsqlOptions.CommandTimeout(60);
+                });
             
             options.AddInterceptors(serviceProvider.GetRequiredService<AuditableEntitySaveChangesInterceptor>());
         });
@@ -60,14 +44,13 @@ public static class ConfigureServices
         return services;
     }
 
-    private static (string ConnectionString, DatabaseProvider Provider) GetConnectionString(IConfiguration configuration)
+    private static string GetConnectionString(IConfiguration configuration)
     {
         // Check for Railway's DATABASE_URL first (postgres:// format)
         var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
         if (!string.IsNullOrEmpty(databaseUrl))
         {
-            var railwayConnectionString = ParseRailwayDatabaseUrl(databaseUrl);
-            return (railwayConnectionString, DatabaseProvider.PostgreSQL);
+            return ParseRailwayDatabaseUrl(databaseUrl);
         }
 
         // Get the connection string from configuration
@@ -80,9 +63,7 @@ public static class ConfigureServices
             throw new InvalidOperationException($"No database connection string found. Please configure 'DefaultConnection' in appsettings. Available connection strings: {availableConnectionStrings}");
         }
 
-        // Detect database provider from connection string format
-        var provider = DetectDatabaseProvider(connectionString);
-        return (connectionString, provider);
+        return connectionString;
     }
 
     private static string ParseRailwayDatabaseUrl(string databaseUrl)
@@ -105,33 +86,4 @@ public static class ConfigureServices
         }
     }
 
-    private static DatabaseProvider DetectDatabaseProvider(string connectionString)
-    {
-        // Check for SQL Server-specific keywords first (more specific)
-        if (connectionString.Contains("Initial Catalog=", StringComparison.OrdinalIgnoreCase) ||
-            connectionString.Contains("MultipleActiveResultSets=", StringComparison.OrdinalIgnoreCase) ||
-            connectionString.Contains("TrustServerCertificate=", StringComparison.OrdinalIgnoreCase) ||
-            (connectionString.Contains("Server=", StringComparison.OrdinalIgnoreCase) && 
-             connectionString.Contains("User Id=", StringComparison.OrdinalIgnoreCase)))
-        {
-            return DatabaseProvider.SqlServer;
-        }
-
-        // Check for PostgreSQL-specific keywords
-        if (connectionString.Contains("postgresql://", StringComparison.OrdinalIgnoreCase) ||
-            connectionString.Contains("Host=", StringComparison.OrdinalIgnoreCase) ||
-            connectionString.Contains("Username=", StringComparison.OrdinalIgnoreCase))
-        {
-            return DatabaseProvider.PostgreSQL;
-        }
-
-        // Default to SQL Server (for backward compatibility)
-        return DatabaseProvider.SqlServer;
-    }
-
-    private enum DatabaseProvider
-    {
-        SqlServer,
-        PostgreSQL
-    }
 }
